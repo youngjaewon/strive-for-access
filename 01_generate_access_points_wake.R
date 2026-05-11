@@ -9,7 +9,7 @@ library(uuid)
 # 1 Load data
 # --------------------------------------------------
 
-parks_all <- st_read("./Data/Audrey/RecLandsAll.geojson", quiet = TRUE)
+parks_all <- st_read("./Data/RecLandsAll.geojson", quiet = TRUE)
 roads <- st_read("./Data/Wake/wake_roads_ors.geojson", quiet = TRUE) |>
   st_transform(26917)
 
