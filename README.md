@@ -38,7 +38,7 @@ Key features:
 
 The scripts assume the following files under `./Data/`:
 
-* `Audrey/RecLandsAll.geojson`: park polygons covering the study region.
+* `RecLandsAll.geojson`: park polygons covering the study region.
 * `Wake/wake_roads_ors.geojson`: road network used for boundary intersection and snapping.
 * `Parks_in_Wake_County.geojson`: known public access points.
 
