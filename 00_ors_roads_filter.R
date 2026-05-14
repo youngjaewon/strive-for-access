@@ -26,7 +26,7 @@ library(tigris)
 # which relies on Nominatim geocoding and returns a rectangular bounding box
 # that can spill into adjacent counties — especially problematic for
 # irregularly shaped or coastal counties.
-county_name <- "Carteret"
+county_name <- "Alamance"
 state_name  <- "NC"
 
 county_sf <- counties(state = state_name, cb = TRUE, progress_bar = FALSE) %>%
