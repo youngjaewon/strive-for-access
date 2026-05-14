@@ -21,7 +21,7 @@ The access point logic uses a four step fallback so that every park polygon rece
 
 ### 00_ors_roads_filter.R
 
-Generates a county level road network suitable for park access point estimation, adapted from the OpenRouteService driving-car tag filtering profile. The script is parameterized by county and state, so it can be reused for any U.S. county.
+Generates a county level road network suitable for park access point estimation, adapted from the [OpenRouteService driving-car tag filtering profile](https://giscience.github.io/openrouteservice/technical-details/tag-filtering#driving-car). The script is parameterized by county and state, so it can be reused for any U.S. county.
 
 Key features:
 
