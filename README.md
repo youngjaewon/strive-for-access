@@ -103,4 +103,3 @@ An OpenRouteService API key is required for script 2. Set it in your R session b
 `​``r
 library(openrouteservice)
 ors_api_key("YOUR_KEY")
-`​``
