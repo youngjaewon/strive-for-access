@@ -912,7 +912,7 @@ st_write(master_updated, "Z:/Data/Triad/MasterPolygon/RecLandsTriad20250519.gpkg
 
 ```
 
-
+# 7/10/2025: load polygon layer from ArcGIS REST API
 
 ```{r}
 
