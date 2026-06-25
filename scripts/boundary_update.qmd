@@ -1,0 +1,1037 @@
+---
+title: "Boundary Update"
+output: html_document
+date: "2025-03-10"
+---
+
+```{r}
+
+library(sf)
+library(dplyr)
+library(stringr)
+library(tmap)
+library(lubridate)
+library(tigris)
+
+```
+
+# 2/22/2025: TPL ParkServe
+
+```{r}
+
+### PART 1: LOAD DATA & SET CRS
+
+# Read the RecLands (master) and TPL parks (new) datasets
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot.gpkg")
+new    <- st_read("Z:/Data/PilotArea/tpl_parks_5p.gpkg")
+
+# Transform both datasets to the same coordinate reference system (EPSG:32633)
+master <- st_transform(master, crs = 32633)
+new    <- st_transform(new, crs = 32633)
+
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store intersection counts between master and new datasets.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count intersections (any intersection regardless of overlap area)
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"]  <- sum(lengths(st_intersects(new, master)) > 0)
+# Self-intersections
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"]       <- sum(lengths(st_intersects(new, new)) > 0)
+
+cat("Initial overlap matrix (any intersection):\n")
+print(overlap_matrix)
+
+# Disable the s2 geometry engine for projected coordinate systems
+sf::sf_use_s2(FALSE)
+
+# --- Extract Non-Intersecting Features based on 5% Overlap Threshold ---
+
+# Add a unique identifier to the new dataset (if not already present)
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons,
+# then compute the overlapping area for each intersection.
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio.
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting.
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+# --- Visual Check using tmap ---
+tmap_mode("view")
+tm_shape(master) +
+  tm_polygons(col = "lightblue", alpha = 0.5, border.col = "blue", title = "RecLands (Master)") +
+tm_shape(new_intersect) +
+  tm_polygons(col = "green", alpha = 0.5, border.col = "darkgreen", title = "TPL Parks (>=5% overlap)") +
+tm_shape(new_nonint) +
+  tm_polygons(col = "orange", alpha = 0.5, border.col = "red", title = "TPL Parks (<5% overlap)")
+
+
+### PART 3: PREPARE TPL PARKS TO MATCH RecLands SCHEMA
+
+# Adjust master OWNER_TYPE values if needed
+master$OWNER_TYPE[master$OWNER_TYPE == "Fee"] <- "Local Government"
+
+# Rename TPL (new_nonint) columns to align with RecLands schema,
+# preserving the unique TPL identifier as TPL_ID.
+# Note: new_nonint represents TPL parks that are not intersecting or intersecting at less than 5%
+new_nonint_renamed <- new_nonint %>%
+  mutate(
+    OWNER_TYPE = case_when(
+      Park_Owner == "" ~ "Local Government",
+      Park_Owner %in% c("CITY", "CNTY", "DIST") ~ "Local Government",
+      Park_Owner == "NONPROFIT" ~ "Non-profit",
+      Park_Owner %in% c("PRIV", "UTIL") ~ "Private",
+      Park_Owner == "ST" ~ "State"
+    )
+  ) %>%
+  rename(
+    TPL_ID  = ParkID,      # Rename ParkID to TPL_ID for clarity
+    MA_NAME = Park_Name,   # Rename Park_Name to MA_NAME
+    ACRES   = Park_Size_,  # Rename Park_Size_ to ACRES
+    SRC_DATE= Park_DateA,  # Rename Park_DateA to SRC_DATE
+    OWNER   = Park_Local   # Rename Park_Local to OWNER
+  )
+
+# Define the subset of columns to select from the TPL dataset.
+new_select_cols <- c("TPL_ID", "MA_NAME", "ACRES", "SRC_DATE", "OWNER", "OWNER_TYPE")
+
+# Select only the specified columns from the renamed TPL data and override fields
+# to match the RecLands schema.
+new_nonint_selected <- new_nonint_renamed %>%
+  select(all_of(new_select_cols)) %>%
+  mutate(
+    GIS_SRC      = "tpl_parkserve",                              # Mark the origin as tpl_parkserve
+    Creator      = "youngjaewon",                                # Set Creator for TPL rows
+    CreationDate = as.POSIXct("2025-02-22 12:55:00"),             # Set CreationDate for TPL rows
+    SRC_DATE     = as.character(as_date(SRC_DATE))              # Convert SRC_DATE to character format
+  )
+
+
+### PART 4: COMBINE DATASETS & WRITE OUTPUT
+
+master_updated <- bind_rows(master, new_nonint_selected)
+
+# Write the updated RecLands dataset to a GeoPackage
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250222.gpkg")
+
+
+```
+
+
+# 2/24/2025: SampsonPark_Parcels 
+
+```{r}
+
+### PART 1: LOAD DATA & SET CRS
+
+# Load the base RecLands dataset (expanded layer) as 'master' and the new Sampson dataset as 'new'.
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250222.gpkg")
+new <- st_read("Z:/Data/PilotArea/Sampson/original/SampsonPark_Parcels.shp")
+
+master <- st_transform(master, crs = 32633)
+new <- st_transform(new, crs = 32633)
+
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store overlap counts between the base layer and the new dataset.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count overlaps between master and new
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"] <- sum(lengths(st_intersects(new, master)) > 0)
+
+# Self-overlap counts
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"] <- sum(lengths(st_intersects(new, new)) > 0)
+
+# Print the overlap matrix for review
+print(overlap_matrix)
+
+# Disable the s2 geometry engine (useful for projected coordinate systems)
+sf::sf_use_s2(FALSE)
+
+
+# --- Extract Non-Intersecting Features based on 5% overlap threshold ---
+
+# Add a unique identifier to the new dataset if not already present
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons
+# and compute the overlapping area for each intersection
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+
+### PART 3: PREPARE NEW DATA & MERGE WITH BASE LAYER
+
+# Rename and reformat the new dataset to match the base layer's schema.
+new_nonint_renamed <- new_nonint %>%
+  dplyr::rename(
+    MA_NAME = PARK,
+    ACRES   = CALC_ACRES,
+    OWNER   = CURRENT_OW,
+    geom   = geometry  # This ensures the geometry column is labeled as expected.
+  )
+
+# Select only the necessary columns and add additional fields.
+select_cols <- c("MA_NAME", "ACRES", "OWNER")
+new_prepared <- new_nonint_renamed %>%
+  dplyr::select(all_of(select_cols)) %>%
+  dplyr::mutate(
+    GIS_SRC = "sampsonpark_parcels",
+    Creator = "youngjaewon",
+    CreationDate = as.POSIXct("2025-02-24 16:38:00")
+  )
+
+# Merge the new non-intersecting records with the base master dataset.
+master_updated <- dplyr::bind_rows(master, new_prepared)
+
+# Write the updated layer to disk.
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250224.gpkg")
+
+```
+
+
+# 3/10/2025: Goldsboro_Parks - City of Goldsboro
+
+```{r}
+
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250310.gpkg")
+new <- st_read("Z:/Data/PilotArea/Wayne/Goldsboro_Parks")
+
+master <- st_transform(master, crs = 32633)
+new <- st_transform(new, crs = 32633)
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store overlap counts between the base layer and the new dataset.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count overlaps between master and new
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"] <- sum(lengths(st_intersects(new, master)) > 0)
+
+# Self-overlap counts
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"] <- sum(lengths(st_intersects(new, new)) > 0)
+
+# Print the overlap matrix for review
+print(overlap_matrix)
+
+# Disable the s2 geometry engine (useful for projected coordinate systems)
+sf::sf_use_s2(FALSE)
+
+# --- Extract Non-Intersecting Features based on 5% overlap threshold ---
+
+# Add a unique identifier to the new dataset if not already present
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons
+# and compute the overlapping area for each intersection
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+
+# STOPPED: Not merged because all polygons already exist (overlap) in existing master polygon dataset
+
+# Set tmap to interactive view mode
+tmap_mode("view")
+
+# Create the map for checking
+tm_shape(master) +
+  tm_polygons(col = "lightblue", alpha = 0.5, border.col = "blue", title = "Master Polygons") +
+tm_shape(new) +
+  tm_polygons(col = "orange", alpha = 0.5, border.col = "red", title = "Goldsboro Parks")
+
+
+```
+
+
+# 3/11/2025: Parks	- City of Wilson
+
+```{r}
+
+# Read master and new datasets
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250310.gpkg")
+new <- st_read("Z:/Data/PilotArea/Wilson_city")
+
+# Transform both datasets to the same coordinate reference system (EPSG:32633)
+master <- st_transform(master, crs = 32633)
+new <- st_transform(new, crs = 32633)
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store overlap counts between the master and new datasets.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count overlaps between master and new using st_intersects
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"] <- sum(lengths(st_intersects(new, master)) > 0)
+
+# Self-overlap counts
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"] <- sum(lengths(st_intersects(new, new)) > 0)
+
+# Print the overlap matrix for review
+print(overlap_matrix)
+
+# Disable the s2 geometry engine for projected coordinate systems
+sf::sf_use_s2(FALSE)
+
+# --- Extract Non-Intersecting Features based on 5% overlap threshold ---
+
+# Add a unique identifier to the new dataset if not already present
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons
+# and compute the overlapping area for each intersection
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+
+# Create the map for checking
+tmap_mode("view")
+
+tm_shape(master) +
+  tm_polygons(col = "lightblue", alpha = 0.5, border.col = "blue", title = "Master Polygons") +
+tm_shape(new_intersect %>% filter(PIN == "3713-32-9100.000")) +
+  tm_polygons(col = "green", alpha = 0.5, border.col = "darkgreen", title = "Parks in New Dataset") +
+tm_shape(new_nonint) +
+  tm_polygons(col = "orange", alpha = 0.5, border.col = "red", title = "Parks in New Dataset")
+
+
+
+### PART 3: PREPARE NEW DATA & MERGE WITH BASE LAYER
+
+# Rename and reformat the new dataset to match the base layer's schema.
+new_nonint_renamed <- new_nonint %>%
+  dplyr::rename(
+    MA_NAME = Park_Name,
+    OWNER   = Name1,
+    geom   = geometry  # This ensures the geometry column is labeled as expected.
+  )
+
+# Select only the necessary columns and add additional fields.
+select_cols <- c("MA_NAME", "OWNER")
+new_prepared <- new_nonint_renamed %>%
+  dplyr::select(all_of(select_cols)) %>%
+  dplyr::mutate(
+    GIS_SRC = "parks-city-of-wilson",
+    Creator = "youngjaewon",
+    CreationDate = as.POSIXct("2025-03-11 16:52:00")
+  )
+
+# Merge the new non-intersecting records with the base master dataset.
+master_updated <- dplyr::bind_rows(master, new_prepared)
+
+master_updated <- st_transform(master_updated, crs = 4326)
+
+# Write the updated layer to disk.
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250311.gdb")
+
+```
+
+# 3/17/2025: Kiwanis Park
+
+```{r}
+
+# Read master and new datasets
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250311.gpkg")
+new    <- st_read("Z:/Data/PilotArea/tpl_parks_5p.gpkg")
+
+st_crs(master)
+st_crs(new)
+
+master <- st_transform(master, crs = 4326)
+new <- st_transform(new, crs = 4326)
+
+kiwanis <- new %>% filter(Park_Name == "Kiwanis Park")
+
+st_area(master %>% filter(MA_ID == 4099)) / st_area(kiwanis)
+
+kiwanis_renamed <- kiwanis %>%
+  mutate( OWNER_TYPE = "Local Government" ) %>%
+  rename(
+    TPL_ID  = ParkID,      # Rename ParkID to TPL_ID for clarity
+    MA_NAME = Park_Name,   # Rename Park_Name to MA_NAME
+    ACRES   = Park_Size_,  # Rename Park_Size_ to ACRES
+    SRC_DATE= Park_DateA,  # Rename Park_DateA to SRC_DATE
+    OWNER   = Park_Local   # Rename Park_Local to OWNER
+  )
+
+# Define the subset of columns to select from the TPL dataset.
+new_select_cols <- c("TPL_ID", "MA_NAME", "ACRES", "SRC_DATE", "OWNER", "OWNER_TYPE")
+
+# Select only the specified columns from the renamed TPL data and override fields
+# to match the RecLands schema.
+kiwanis_selected <- kiwanis_renamed %>%
+  select(all_of(new_select_cols)) %>%
+  mutate(
+    GIS_SRC      = "tpl_parkserve",                              # Mark the origin as tpl_parkserve
+    Creator      = "youngjaewon",                                # Set Creator for TPL rows
+    CreationDate = as.POSIXct("2025-03-17 12:12:00"),             # Set CreationDate for TPL rows
+    SRC_DATE     = as.character(as_date(SRC_DATE))              # Convert SRC_DATE to character format
+  )
+
+master_updated <- dplyr::bind_rows(master, kiwanis_selected)
+
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250317.gpkg")
+
+
+# Select columns from AircraftFlying to Boardwalk, then drop amphitheaterstage_count.
+selected_cols <- master_updated %>%
+  select(AircraftFlying:Boardwalk) %>%
+  select(-amphitheaterstage_count)
+
+# Count occurrences of "Yes" (ignoring NA and "No")
+yes_count <- sum(unlist(selected_cols) == "Yes", na.rm = TRUE)
+yes_count
+
+
+```
+
+# 3/17/2025: Dix Park; Rock Spring Park
+
+```{r}
+
+# Read master and new datasets
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250317.gpkg")
+new    <- st_read("Z:/Data/PilotArea/tpl_parks_5p.gpkg")
+
+st_crs(master)
+st_crs(new)
+
+master <- st_transform(master, crs = 4326)
+new <- st_transform(new, crs = 4326)
+
+dix <- new %>% filter(Park_Name == "Dorothea Dix Park")
+
+dix_renamed <- dix %>%
+  mutate( OWNER_TYPE = "Local Government" ) %>%
+  rename(
+    TPL_ID  = ParkID,      # Rename ParkID to TPL_ID for clarity
+    MA_NAME = Park_Name,   # Rename Park_Name to MA_NAME
+    ACRES   = Park_Size_,  # Rename Park_Size_ to ACRES
+    SRC_DATE= Park_DateA,  # Rename Park_DateA to SRC_DATE
+    OWNER   = Park_Local   # Rename Park_Local to OWNER
+  )
+
+# Define the subset of columns to select from the TPL dataset.
+new_select_cols <- c("TPL_ID", "MA_NAME", "ACRES", "SRC_DATE", "OWNER", "OWNER_TYPE")
+
+# Select only the specified columns from the renamed TPL data and override fields
+# to match the RecLands schema.
+dix_selected <- dix_renamed %>%
+  select(all_of(new_select_cols)) %>%
+  mutate(
+    GIS_SRC      = "tpl_parkserve",                              # Mark the origin as tpl_parkserve
+    Creator      = "youngjaewon",                                # Set Creator for TPL rows
+    CreationDate = as.POSIXct("2025-03-17 14:00:00"),             # Set CreationDate for TPL rows
+    SRC_DATE     = as.character(as_date(SRC_DATE))              # Convert SRC_DATE to character format
+  )
+
+master_updated <- dplyr::bind_rows(master, dix_selected)
+
+
+
+rockspring <- new %>% filter(Park_Name == "Rock Spring Park")
+
+master_updated$geom[master_updated$MA_NAME=="Wake County Open Space - Rock Spring Park"] <- rockspring$geom
+
+
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250317.gpkg")
+
+```
+
+# 3/18: Open_Space in Wake County (4/18: Team decided not to merge)
+
+```{r}
+
+# Read master and new datasets
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250317.gpkg")
+new <- st_read("Z:/Data/PilotArea/Wake/Open_Space")
+
+# Transform both datasets to the same coordinate reference system (EPSG:32633)
+master <- st_transform(master, crs = 4326)
+new <- st_transform(new, crs = 4326)
+
+master <- st_make_valid(master)
+new <- st_make_valid(new)
+
+# Remove TRAFFIC ISLANDS
+new <- new %>% filter(is.na(TYPE) | TYPE != "TRAFFIC ISLAND")
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store overlap counts between the master and new datasets.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count overlaps between master and new using st_intersects
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"] <- sum(lengths(st_intersects(new, master)) > 0)
+
+# Self-overlap counts
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"] <- sum(lengths(st_intersects(new, new)) > 0)
+
+# Print the overlap matrix for review
+print(overlap_matrix)
+
+# Disable the s2 geometry engine for projected coordinate systems
+sf::sf_use_s2(FALSE)
+
+# --- Extract Non-Intersecting Features based on 5% overlap threshold ---
+
+# Add a unique identifier to the new dataset if not already present
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons
+# and compute the overlapping area for each intersection
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+
+### PART 3: PREPARE TPL PARKS TO MATCH RecLands SCHEMA
+
+# Rename new_nonint columns to align with RecLands schema,
+# Note: new_nonint represents polygons that are not intersecting or intersecting at less than 5%
+new_nonint_renamed <- new_nonint %>%
+  rename(
+    MA_NAME = NAME,   # Rename NAME to MA_NAME
+    geom = geometry
+  )
+
+# Define the subset of columns to select from the new dataset.
+new_select_cols <- c("MA_NAME", "OWNER")
+
+# Select only the specified columns from the renamed TPL data and override fields
+# to match the RecLands schema.
+new_nonint_selected <- new_nonint_renamed %>%
+  select(all_of(new_select_cols)) %>%
+  mutate(
+    GIS_SRC      = "open_space_wake_county",                              # Mark the origin
+    Creator      = "youngjaewon",                                # Set Creator
+    CreationDate = as.POSIXct("2025-03-17 18:38:00")             # Set CreationDate 
+  )
+
+
+### PART 4: COMBINE DATASETS & WRITE OUTPUT
+
+master_updated <- bind_rows(master, new_nonint_selected)
+
+# Write the updated RecLands dataset to a GeoPackage
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250318.gpkg")
+
+```
+
+# 3/20: Dix Park Duplicate Fix
+
+```{r}
+
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250319.gpkg")
+
+master <- st_transform(master, crs = 4326)
+
+master_updated <- master %>%
+  filter(is.na(MA_ID) | !(MA_ID %in% c(4843, 4891)))
+
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250320.gpkg")
+
+# Select columns from AircraftFlying to Boardwalk, then drop amphitheaterstage_count.
+selected_cols <- master_updated %>%
+  select(AircraftFlying:Boardwalk) %>%
+  select(-amphitheaterstage_count)
+
+# Count occurrences of "Yes" (ignoring NA and "No")
+yes_count <- sum(unlist(selected_cols) == "Yes", na.rm = TRUE)
+yes_count
+  
+```
+
+
+# 4/10: LWCF_poly
+```{r}
+
+
+# Read master and new datasets
+master <- st_read("Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250320.gpkg")
+new <- st_read("Z:/Data/PilotArea/Spatial/LWCF_poly.shp")
+
+# Transform both datasets to the same coordinate reference system (EPSG:32633)
+master <- st_transform(master, crs = 4326)
+new <- st_transform(new, crs = 4326)
+
+master <- st_make_valid(master)
+new <- st_make_valid(new)
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store overlap counts between the master and new datasets.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count overlaps between master and new using st_intersects
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"] <- sum(lengths(st_intersects(new, master)) > 0)
+
+# Self-overlap counts
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"] <- sum(lengths(st_intersects(new, new)) > 0)
+
+# Print the overlap matrix for review
+print(overlap_matrix)
+
+
+# --- Extract Non-Intersecting Features based on 5% overlap threshold ---
+
+# Add a unique identifier to the new dataset if not already present
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons
+# and compute the overlapping area for each intersection
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+
+### PART 3: PREPARE NEW Dataset TO MATCH RecLands SCHEMA
+
+# Rename new_nonint columns to align with RecLands schema,
+# Note: new_nonint represents polygons that are not intersecting or intersecting at less than 5%
+new_nonint_renamed <- new_nonint %>%
+  rename(
+    MA_NAME = ELEMENTNAM,   # Rename NAME to MA_NAME
+    geom = geometry
+  )
+
+# Define the subset of columns to select from the new dataset.
+new_select_cols <- c("MA_NAME")
+
+# Select only the specified columns from the renamed TPL data and override fields
+# to match the RecLands schema.
+new_nonint_selected <- new_nonint_renamed %>%
+  select(all_of(new_select_cols)) %>%
+  mutate(
+    GIS_SRC      = "LWCF_poly",                              # Mark the origin
+    Creator      = "youngjaewon",                                # Set Creator
+    CreationDate = as.POSIXct("2025-04-11 15:28:00")             # Set CreationDate 
+  )
+
+
+### PART 4: COMBINE DATASETS & WRITE OUTPUT
+
+master_updated <- bind_rows(master, new_nonint_selected)
+
+# Write the updated RecLands dataset to a GeoPackage
+st_write(master_updated, "Z:/Data/PilotArea/MasterPolygon/RecLandsPilot20250410.gpkg")
+
+
+```
+
+# 5/19/2025: Load 12 Triad counties boundary data
+
+```{r}
+
+# Set tigris to return spatial features (sf) objects
+options(tigris_class = "sf")
+
+# Download county boundaries for North Carolina using the TIGER/Line dataset.
+# The 'cb = TRUE' parameter specifies that the Cartographic Boundary files should be used.
+# not available after 2023
+nc_counties <- counties(state = "NC", cb = TRUE, year = 2023)
+
+# Filter the data to include only five pilot counties
+triad_counties <- nc_counties %>% filter(NAME %in% c("Alamance", "Caswell", "Davidson", "Davie", "Forsyth", "Guilford", 
+                                                     "Montgomery", "Randolph", "Rockingham", "Stokes", "Surry", "Yadkin")) 
+
+triad_counties <- st_transform(triad_counties, crs=4326)
+
+tmap_mode("view")
+tm_shape(triad_counties) +
+  tm_polygons()
+
+st_write(triad_counties, "Z:/Data/Triad/CountyBoundary/CountyBoundary.gpkg")
+
+
+
+```
+
+
+# 5/19/2025: TPL ParkServe
+
+```{r}
+
+tpl_parks <- st_read("Z:/Data/OtherDataSources/ParkServe_fgd_DataShare_05212024/Parkserve_Download_2024.gdb", layer="ParkServe_Parks")
+
+tpl_parks <- st_transform(tpl_parks, crs = 4326)
+
+tpl_parks_nc <- tpl_parks %>% filter(Park_State == "North Carolina")
+
+tpl_parks_nc <- st_make_valid(tpl_parks_nc)
+
+tpl_parks_triad <- tpl_parks_nc %>% st_filter(triad_counties, .predicate = st_intersects)
+
+table(tpl_parks_triad$Park_Count)
+
+tmap_mode("view")
+tm_shape(triad_counties) +
+  tm_polygons() +
+  tm_shape(tpl_parks_triad) +
+  tm_polygons()
+
+st_write(tpl_parks_triad, "Z:/Data/Triad/tpl_parks_triad.gpkg")
+
+```
+
+# 5/19/2025: TPL ParkServe
+
+```{r}
+### PART 1: LOAD DATA & SET CRS
+
+# Read the RecLands (master) and TPL parks (new) datasets
+master <- st_read("Z:/Data/Triad/MasterPolygon/RecLandsTriad20250515.gpkg")
+new    <- st_read("Z:/Data/Triad/tpl_parks_triad.gpkg")
+
+# Transform both datasets to the same coordinate reference system (EPSG:32633)
+master <- st_transform(master, crs = 32633)
+new    <- st_transform(new, crs = 32633)
+
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store intersection counts between master and new datasets.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count intersections (any intersection regardless of overlap area)
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"]  <- sum(lengths(st_intersects(new, master)) > 0)
+# Self-intersections
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"]       <- sum(lengths(st_intersects(new, new)) > 0)
+
+cat("Initial overlap matrix (any intersection):\n")
+print(overlap_matrix)
+
+# Disable the s2 geometry engine for projected coordinate systems
+sf::sf_use_s2(FALSE)
+
+# --- Extract Non-Intersecting Features based on 5% Overlap Threshold ---
+
+# Add a unique identifier to the new dataset (if not already present)
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons,
+# then compute the overlapping area for each intersection.
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio.
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting.
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+# --- Visual Check using tmap ---
+tmap_mode("view")
+tm_shape(master) +
+  tm_polygons(col = "lightblue", alpha = 0.5, border.col = "blue", title = "RecLands (Master)") +
+tm_shape(new_intersect) +
+  tm_polygons(col = "green", alpha = 0.5, border.col = "darkgreen", title = "TPL Parks (>=5% overlap)") +
+tm_shape(new_nonint) +
+  tm_polygons(col = "orange", alpha = 0.5, border.col = "red", title = "TPL Parks (<5% overlap)")
+
+
+### PART 3: PREPARE TPL PARKS TO MATCH RecLands SCHEMA
+
+# Rename TPL (new_nonint) columns to align with RecLands schema,
+# preserving the unique TPL identifier as TPL_ID.
+# Note: new_nonint represents TPL parks that are not intersecting or intersecting at less than 5%
+new_nonint_renamed <- new_nonint %>%
+  mutate(
+    OWNER_TYPE = case_when(
+      Park_Owner == "" ~ "Local Government",
+      Park_Owner %in% c("CITY", "CNTY", "DIST") ~ "Local Government",
+      Park_Owner == "NONPROFIT" ~ "Non-profit",
+      Park_Owner %in% c("PRIV", "UTIL") ~ "Private",
+      Park_Owner == "ST" ~ "State"
+    )
+  ) %>%
+  rename(
+    TPL_ID  = ParkID,      # Rename ParkID to TPL_ID for clarity
+    MA_NAME = Park_Name,   # Rename Park_Name to MA_NAME
+    ACRES   = Park_Size_,  # Rename Park_Size_ to ACRES
+    SRC_DATE= Park_DateA,  # Rename Park_DateA to SRC_DATE
+    OWNER   = Park_Local   # Rename Park_Local to OWNER
+  )
+
+# Define the subset of columns to select from the TPL dataset.
+new_select_cols <- c("TPL_ID", "MA_NAME", "ACRES", "SRC_DATE", "OWNER", "OWNER_TYPE")
+
+# Select only the specified columns from the renamed TPL data and override fields
+# to match the RecLands schema.
+new_nonint_selected <- new_nonint_renamed %>%
+  select(all_of(new_select_cols)) %>%
+  mutate(
+    GIS_SRC      = "tpl_parkserve",                              # Mark the origin as tpl_parkserve
+    Creator      = "youngjaewon",                                # Set Creator for TPL rows
+    CreationDate = as.POSIXct("2025-05-19 10:43:00"),             # Set CreationDate for TPL rows
+    SRC_DATE     = as.character(as_date(SRC_DATE))              # Convert SRC_DATE to character format
+  )
+
+
+### PART 4: COMBINE DATASETS & WRITE OUTPUT
+
+master_updated <- bind_rows(master, new_nonint_selected)
+
+master_updated <- st_transform(master_updated, crs = 4326)
+
+# Write the updated RecLands dataset to a GeoPackage
+st_write(master_updated, "Z:/Data/Triad/MasterPolygon/RecLandsTriad20250519.gpkg")
+
+
+```
+
+
+
+```{r}
+
+### PART 1: LOAD DATA & SET CRS
+
+master <- st_read("/Users/ywon3/ASU Dropbox/Youngjae Won/Strive for Access/RecLandsTriad20250519.gpkg")
+
+url <- "https://maps.ptrc.org/arcgis/rest/services/Recreation/Parks/FeatureServer/0/query?where=1%3D1&outFields=*&f=json"
+
+new <- st_read(url)
+
+new <- new %>%
+  mutate(
+    last_edited_date = as_datetime(as.numeric(last_edited_date) / 1000, tz = "UTC"),
+    created_date     = as_datetime(as.numeric(created_date)     / 1000, tz = "UTC")
+  )
+
+new <- new %>%
+  mutate(
+    last_edited_date = with_tz(last_edited_date, tzone = "America/New_York"),
+    created_date = with_tz(created_date, tzone = "America/New_York")
+  )
+
+# Transform both datasets to the same coordinate reference system (EPSG:32633)
+master <- st_transform(master, crs = 32633)
+new    <- st_transform(new, crs = 32633)
+
+
+### PART 2: OVERLAP ANALYSIS & NON-INTERSECTING EXTRACTION
+
+# --- Overlap Matrix Calculation ---
+# Create a 2x2 matrix to store intersection counts between master and new datasets.
+overlap_matrix <- matrix(NA, nrow = 2, ncol = 2)
+rownames(overlap_matrix) <- c("master", "new")
+colnames(overlap_matrix) <- c("master", "new")
+
+# Count intersections (any intersection regardless of overlap area)
+overlap_matrix["master", "new"] <- sum(lengths(st_intersects(master, new)) > 0)
+overlap_matrix["new", "master"]  <- sum(lengths(st_intersects(new, master)) > 0)
+# Self-intersections
+overlap_matrix["master", "master"] <- sum(lengths(st_intersects(master, master)) > 0)
+overlap_matrix["new", "new"]       <- sum(lengths(st_intersects(new, new)) > 0)
+
+cat("Initial overlap matrix (any intersection):\n")
+print(overlap_matrix)
+
+# Disable the s2 geometry engine for projected coordinate systems
+sf::sf_use_s2(FALSE)
+
+# --- Extract Non-Intersecting Features based on 5% Overlap Threshold ---
+
+# Add a unique identifier to the new dataset (if not already present)
+new <- new %>% mutate(new_id = row_number())
+
+# Calculate intersections between new features and master polygons,
+# then compute the overlapping area for each intersection.
+new_master_intersections <- st_intersection(new, master) %>%
+  mutate(intersect_area = st_area(.)) %>%
+  group_by(new_id) %>%
+  summarise(total_overlap = sum(intersect_area)) %>%
+  st_drop_geometry()
+
+# Calculate the area of each new feature and compute the overlap ratio.
+new_with_overlap <- new %>%
+  mutate(new_area = st_area(.)) %>%
+  left_join(new_master_intersections, by = "new_id") %>%
+  mutate(overlap_ratio = as.numeric(total_overlap) / as.numeric(new_area))
+
+# Select features with an overlap ratio of at least 5%
+new_intersect <- new_with_overlap %>% filter(overlap_ratio >= 0.05)
+
+# Features with less than 5% overlap (or no overlap) are considered non-intersecting.
+new_nonint <- new_with_overlap %>% filter(is.na(overlap_ratio) | overlap_ratio < 0.05)
+
+# --- Visual Check using tmap ---
+tmap_mode("view")
+tm_shape(master) +
+  tm_polygons(col = "lightblue", alpha = 0.5, border.col = "blue", title = "RecLands (Master)") +
+tm_shape(new_intersect) +
+  tm_polygons(col = "green", alpha = 0.5, border.col = "darkgreen", title = "TPL Parks (>=5% overlap)") +
+tm_shape(new_nonint) +
+  tm_polygons(col = "orange", alpha = 0.5, border.col = "red", title = "TPL Parks (<5% overlap)")
+
+
+### PART 3: PREPARE TPL PARKS TO MATCH RecLands SCHEMA
+
+# Rename TPL (new_nonint) columns to align with RecLands schema,
+# preserving the unique TPL identifier as TPL_ID.
+# Note: new_nonint represents TPL parks that are not intersecting or intersecting at less than 5%
+new_nonint_renamed <- new_nonint %>%
+  rename(
+    MA_NAME = ParkName,   # Rename ParkName to MA_NAME
+    ACRES   = Acres,  # Rename Acres to ACRES
+    EditDate = last_edited_date
+  )
+
+# Define the subset of columns to select from the TPL dataset.
+new_select_cols <- c("MA_NAME", "ACRES", "EditDate")
+
+# Select only the specified columns from the renamed TPL data and override fields
+# to match the RecLands schema.
+new_nonint_selected <- new_nonint_renamed %>%
+  select(all_of(new_select_cols)) %>%
+  mutate(
+    GIS_SRC      = "ptrc_20250710",                              # Mark the origin as tpl_parkserve
+    Creator      = "youngjaewon",                                # Set Creator for TPL rows
+    CreationDate = as.POSIXct("2025-07-10 20:03:00"),             # Set CreationDate for TPL rows
+  )
+
+
+### PART 4: COMBINE DATASETS & WRITE OUTPUT
+
+master_updated <- bind_rows(master, new_nonint_selected)
+
+master_updated <- st_transform(master_updated, crs = 4326)
+
+# Write the updated RecLands dataset to a GeoPackage
+st_write(master_updated, "/Users/ywon3/ASU Dropbox/Youngjae Won/Strive for Access/RecLandsTriad20250710.gpkg")
+
+
+```
+
