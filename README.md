@@ -140,87 +140,87 @@ config:
 ---
 flowchart TB
 
- subgraph BOUNDARY["1. Park Boundary Dataset"]
+subgraph BOUNDARY["1. Park Boundary Dataset"]
     direction LR
 
     B1["<b>Data sources</b><br><br>External boundary datasets<br><br>Survey123 geometry correction requests"]
 
-    B2["<b>Update master boundaries</b><br><br>Standardize fields and geometry<br><br>Compare with master and append only new parks<br><br>Preserve park_id UUIDs and assign IDs to new parks only<br><br><span style='color:#1A73E8'>01_update_park_boundaries.R</span>"]
+    B2["<b>Update master boundaries</b><br><br>Standardize fields and geometry<br><br>Compare with master and append only new parks<br><br>Preserve park_id UUIDs, assign IDs to new parks only<br><br><font color='#1A73E8'>01_update_park_boundaries.R</font>"]
 
     B3["<b>Manual review in GIS</b><br><br>Resolve overlaps and duplicates<br><br>Apply Survey123 geometry corrections"]
 
     B4[("<b>Master Park Boundary Dataset</b><br><br>Validated park polygons<br><br>Primary key: park_id")]
- end
+end
 
- subgraph AMENITY["2. Park Amenity Dataset"]
+subgraph AMENITY["2. Park Amenity Dataset"]
     direction LR
 
     A1["<b>Data sources</b><br><br>External polygon based datasets<br><br>External point based datasets<br><br>Survey123 amenity responses"]
 
-    A2["<b>Update from external datasets</b><br><br>Standardize amenity fields<br><br>Spatially match records to parks<br><br>Update confirmed amenity values<br><br><span style='color:#1A73E8'>02a_update_amenities_polygon.R</span><br><span style='color:#1A73E8'>02b_update_amenities_point.R</span>"]
+    A2["<b>Update from external datasets</b><br><br>Standardize amenity fields<br><br>Spatially match records to parks<br><br>Update confirmed amenity values<br><br><font color='#1A73E8'>02a_update_amenities_polygon.R</font><br><font color='#1A73E8'>02b_update_amenities_point.R</font>"]
 
-    A3["<b>Update from Survey123</b><br><br>Match responses to parks<br><br>Summarize duplicate responses per park<br><br>Update reviewed amenity values<br><br><span style='color:#1A73E8'>02c_update_amenities_survey123.R</span><br><i style='color:#1A73E8'>uses match_survey_to_master.R</i>"]
+    A3["<b>Update from Survey123</b><br><br>Match responses to parks<br><br>Summarize duplicate responses per park<br><br>Update reviewed amenity values<br><br><font color='#1A73E8'>02c_update_amenities_survey123.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
 
     A4[("<b>Master Park Amenity Dataset</b><br><br>One amenity record per park<br><br>Primary key: park_id")]
- end
+end
 
- subgraph ACCESS["3. Park Access Point Dataset"]
+subgraph ACCESS["3. Park Access Point Dataset"]
     direction LR
 
     P1["<b>Data sources</b><br><br>External access point datasets<br><br>Survey123 park addresses<br><br>OSM parking and road data"]
 
-    P2["<b>Update from external and Survey123</b><br><br>Standardize external points<br><br>Geocode and validate Survey123 addresses<br><br>Deduplicate and append with new access_point_id UUIDs<br><br><span style='color:#1A73E8'>03a_update_external_access_points.R</span><br><span style='color:#1A73E8'>03b_geocode_survey123_access_points.R</span><br><i style='color:#1A73E8'>uses match_survey_to_master.R</i>"]
+    P2["<b>Update from external and Survey123</b><br><br>Standardize external points<br><br>Geocode and validate Survey123 addresses<br><br>Deduplicate, then append with new access_point_id UUIDs<br><br><font color='#1A73E8'>03a_update_external_access_points.R</font><br><font color='#1A73E8'>03b_geocode_survey123_access_points.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
 
-    P3["<b>Complete coverage</b><br><br>Build ORS filtered road network per county<br><br>Estimate points for parks without coverage:<br>OSM parking, boundary road intersection,<br>nearest road snapping<br><br><span style='color:#1A73E8'>03c_build_road_network.R</span><br><span style='color:#1A73E8'>03d_estimate_missing_access_points.R</span>"]
+    P3["<b>Complete coverage</b><br><br>Build ORS filtered road network per county<br><br>Estimate points for parks without coverage:<br>OSM parking, boundary road intersection,<br>nearest road snapping<br><br><font color='#1A73E8'>03c_build_road_network.R</font><br><font color='#1A73E8'>03d_estimate_missing_access_points.R</font>"]
 
     P5[("<b>Master Park Access Point Dataset</b><br><br>Validated park access points<br><br>Primary key: access_point_id<br>Foreign key: park_id")]
- end
+end
 
- subgraph SERVICE["4. Drive Time Service Area Dataset"]
+subgraph SERVICE["4. Drive Time Service Area Dataset"]
     direction LR
 
-    T1["<b>Generate service areas</b><br><br>One 10 minute isochrone per access point<br><br>Union isochrones by park_id<br><br>Checkpointing enables incremental updates<br><br><span style='color:#1A73E8'>04_generate_service_areas.R</span>"]
+    T1["<b>Generate service areas</b><br><br>One 10 minute isochrone per access point<br><br>Union isochrones by park_id<br><br>Checkpointing enables incremental updates<br><br><font color='#1A73E8'>04_generate_service_areas.R</font>"]
 
     T3[("<b>Master Drive Time Service Area Dataset</b><br><br>One 10 minute service area per park<br><br>Primary key: park_id")]
- end
+end
 
- M[("<b style='font-size:16px'>Versioned SFA Master Datasets</b><br><br><b>boundaries/</b> boundaries_YYYYMMDD.gpkg<br><b>amenities/</b> amenities_YYYYMMDD.csv<br><b>access_points/</b> access_points_YYYYMMDD.gpkg<br><b>service_areas/</b> service_areas_YYYYMMDD.gpkg<br><br><i>Each script reads the latest version as input<br>and writes a new dated version</i>")]
+M[("<b style='font-size:16px'>Versioned SFA Master Datasets</b><br><br><b>boundaries/</b> boundaries_YYYYMMDD.gpkg<br><b>amenities/</b> amenities_YYYYMMDD.csv<br><b>access_points/</b> access_points_YYYYMMDD.gpkg<br><b>service_areas/</b> service_areas_YYYYMMDD.gpkg<br><br><i>Each script reads the latest version as input<br>and writes a new dated version</i>")]
 
- B1 ==> B2
- B2 ==> B3
- B3 ==> B4
+B1 ==> B2
+B2 ==> B3
+B3 ==> B4
 
- A1 ==> A2
- A1 ==> A3
- A2 ==> A4
- A3 ==> A4
+A1 ==> A2
+A1 ==> A3
+A2 ==> A4
+A3 ==> A4
 
- P1 ==> P2
- P2 ==> P3
- P3 ==> P5
+P1 ==> P2
+P2 ==> P3
+P3 ==> P5
 
- P5 ==> T1
- T1 ==> T3
+P5 ==> T1
+T1 ==> T3
 
- B4 -. park geometry and park_id .-> A1
- B4 -. park geometry and park_id .-> P1
+B4 -. park geometry and park_id .-> A1
+B4 -. park geometry and park_id .-> P1
 
- B4 -.-> M
- A4 -.-> M
- P5 -.-> M
- T3 -.-> M
+B4 -.-> M
+A4 -.-> M
+P5 -.-> M
+T3 -.-> M
 
- class B1,A1,P1 standard
- class B2,A2,A3,P2,P3,T1 script
- class B3 manual
- class B4,A4,P5,T3 output
- class M master
+class B1,A1,P1 standard
+class B2,A2,A3,P2,P3,T1 script
+class B3 manual
+class B4,A4,P5,T3 output
+class M master
 
- classDef standard fill:#F7F7F7,stroke:#5F6368,stroke-width:1.5px,color:#202124
- classDef script fill:#F7F7F7,stroke:#3C4043,stroke-width:2px,color:#202124
- classDef manual fill:#FFFFFF,stroke:#5F6368,stroke-width:1.5px,stroke-dasharray:5 3,color:#202124
- classDef output fill:#F7F7F7,stroke:#5F6368,stroke-width:2px,color:#202124
- classDef master fill:#F7F7F7,stroke:#3C4043,stroke-width:2.5px,color:#202124
+classDef standard fill:#F7F7F7,stroke:#5F6368,stroke-width:1.5px,color:#202124
+classDef script fill:#F7F7F7,stroke:#3C4043,stroke-width:2px,color:#202124
+classDef manual fill:#FFFFFF,stroke:#5F6368,stroke-width:1.5px,stroke-dasharray:5 3,color:#202124
+classDef output fill:#F7F7F7,stroke:#5F6368,stroke-width:2px,color:#202124
+classDef master fill:#F7F7F7,stroke:#3C4043,stroke-width:2.5px,color:#202124
 ```
 
 ## Dataset Relationships
