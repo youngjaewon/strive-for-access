@@ -131,7 +131,7 @@ data/
 
 ```text
 R/
-  01_update_park_boundaries.R
+  01_update_boundaries.R
 
   02a_update_amenities_polygon.R
   02b_update_amenities_point.R
