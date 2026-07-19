@@ -33,7 +33,7 @@ flowchart TB
 subgraph BOUNDARY["1. Park Boundary Dataset"]
     direction LR
     B1["<b>Data sources</b><br>External boundary datasets<br>Survey123 geometry correction requests"]
-    B2["<b>Update master boundaries</b><br>Standardize fields and geometry<br>Compare with master and append new parks<br>Preserve park_id UUIDs<br>Assign IDs to new parks only<br><font color='#1A73E8'>01_update_park_boundaries.R</font>"]
+    B2["<b>Update master boundaries</b><br>Standardize fields and geometry<br>Compare with master and append new parks<br>Preserve park_id UUIDs<br>Assign IDs to new parks only<br><font color='#1A73E8'>01_update_boundaries.R</font>"]
     B3["<b>Manual review in GIS</b><br>Resolve overlaps and duplicates<br>Apply Survey123 geometry corrections"]
     B4[("<b>Master Park Boundary Dataset</b><br>Validated park polygons<br>Primary key: park_id")]
 end
