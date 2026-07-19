@@ -19,62 +19,48 @@ config:
   theme: base
   themeVariables:
     fontFamily: ''
-    fontSize: 13px
+    fontSize: 12px
     lineColor: '#5F6368'
   flowchart:
     htmlLabels: true
     curve: basis
-    nodeSpacing: 24
-    rankSpacing: 42
+    nodeSpacing: 16
+    rankSpacing: 28
   layout: dagre
 ---
 flowchart TB
 
 subgraph BOUNDARY["1. Park Boundary Dataset"]
     direction LR
-
-    B1["<b>Data sources</b><br><br>External boundary datasets<br><br>Survey123 geometry correction requests"]
-
-    B2["<b>Update master boundaries</b><br><br>Standardize fields and geometry<br><br>Compare with master and append only new parks<br><br>Preserve park_id UUIDs, assign IDs to new parks only<br><br><font color='#1A73E8'>01_update_park_boundaries.R</font>"]
-
-    B3["<b>Manual review in GIS</b><br><br>Resolve overlaps and duplicates<br><br>Apply Survey123 geometry corrections"]
-
-    B4[("<b>Master Park Boundary Dataset</b><br><br>Validated park polygons<br><br>Primary key: park_id")]
+    B1["<b>Data sources</b><br>External boundary datasets<br>Survey123 geometry correction requests"]
+    B2["<b>Update master boundaries</b><br>Standardize fields and geometry<br>Compare with master and append new parks<br>Preserve park_id UUIDs<br>Assign IDs to new parks only<br><font color='#1A73E8'>01_update_park_boundaries.R</font>"]
+    B3["<b>Manual review in GIS</b><br>Resolve overlaps and duplicates<br>Apply Survey123 geometry corrections"]
+    B4[("<b>Master Park Boundary Dataset</b><br>Validated park polygons<br>Primary key: park_id")]
 end
 
 subgraph AMENITY["2. Park Amenity Dataset"]
     direction LR
-
-    A1["<b>Data sources</b><br><br>External polygon based datasets<br><br>External point based datasets<br><br>Survey123 amenity responses"]
-
-    A2["<b>Update from external datasets</b><br><br>Standardize amenity fields<br><br>Spatially match records to parks<br><br>Update confirmed amenity values<br><br><font color='#1A73E8'>02a_update_amenities_polygon.R</font><br><font color='#1A73E8'>02b_update_amenities_point.R</font>"]
-
-    A3["<b>Update from Survey123</b><br><br>Match responses to parks<br><br>Summarize duplicate responses per park<br><br>Update reviewed amenity values<br><br><font color='#1A73E8'>02c_update_amenities_survey123.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
-
-    A4[("<b>Master Park Amenity Dataset</b><br><br>One amenity record per park<br><br>Primary key: park_id")]
+    A1["<b>Data sources</b><br>External polygon datasets<br>External point datasets<br>Survey123 amenity responses"]
+    A2["<b>Update from external datasets</b><br>Standardize amenity fields<br>Spatially match records to parks<br>Update confirmed values<br><font color='#1A73E8'>02a_update_amenities_polygon.R</font><br><font color='#1A73E8'>02b_update_amenities_point.R</font>"]
+    A3["<b>Update from Survey123</b><br>Match responses to parks<br>Summarize responses by park<br>Update reviewed values<br><font color='#1A73E8'>02c_update_amenities_survey123.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
+    A4[("<b>Master Park Amenity Dataset</b><br>One record per park<br>Primary key: park_id")]
 end
 
 subgraph ACCESS["3. Park Access Point Dataset"]
     direction LR
-
-    P1["<b>Data sources</b><br><br>External access point datasets<br><br>Survey123 park addresses<br><br>OSM parking and road data"]
-
-    P2["<b>Update from external and Survey123</b><br><br>Standardize external points<br><br>Geocode and validate Survey123 addresses<br><br>Deduplicate, then append with new access_point_id UUIDs<br><br><font color='#1A73E8'>03a_update_external_access_points.R</font><br><font color='#1A73E8'>03b_geocode_survey123_access_points.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
-
-    P3["<b>Complete coverage</b><br><br>Build ORS filtered road network per county<br><br>Estimate points for parks without coverage:<br>OSM parking, boundary road intersection,<br>nearest road snapping<br><br><font color='#1A73E8'>03c_build_road_network.R</font><br><font color='#1A73E8'>03d_estimate_missing_access_points.R</font>"]
-
-    P5[("<b>Master Park Access Point Dataset</b><br><br>Validated park access points<br><br>Primary key: access_point_id<br>Foreign key: park_id")]
+    P1["<b>Data sources</b><br>External access point datasets<br>Survey123 park addresses<br>OSM parking and road data"]
+    P2["<b>Update external and Survey123 points</b><br>Standardize external points<br>Geocode and validate addresses<br>Deduplicate and append new points<br>Assign access_point_id UUIDs<br><font color='#1A73E8'>03a_update_external_access_points.R</font><br><font color='#1A73E8'>03b_geocode_survey123_access_points.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
+    P3["<b>Complete coverage</b><br>Build ORS filtered road networks<br>Estimate points for uncovered parks<br>OSM parking, road intersections,<br>and nearest road snapping<br><font color='#1A73E8'>03c_build_road_network.R</font><br><font color='#1A73E8'>03d_estimate_missing_access_points.R</font>"]
+    P5[("<b>Master Park Access Point Dataset</b><br>Validated park access points<br>Primary key: access_point_id<br>Foreign key: park_id")]
 end
 
 subgraph SERVICE["4. Drive Time Service Area Dataset"]
     direction LR
-
-    T1["<b>Generate service areas</b><br><br>One 10 minute isochrone per access point<br><br>Union isochrones by park_id<br><br>Checkpointing enables incremental updates<br><br><font color='#1A73E8'>04_generate_service_areas.R</font>"]
-
-    T3[("<b>Master Drive Time Service Area Dataset</b><br><br>One 10 minute service area per park<br><br>Primary key: park_id")]
+    T1["<b>Generate service areas</b><br>Create one 10 minute isochrone per point<br>Union isochrones by park_id<br>Use checkpoints for incremental updates<br><font color='#1A73E8'>04_generate_service_areas.R</font>"]
+    T3[("<b>Master Drive Time Service Area Dataset</b><br>One service area per park<br>Primary key: park_id")]
 end
 
-M[("<b style='font-size:16px'>Versioned SFA Master Datasets</b><br><br><b>boundaries/</b> boundaries_YYYYMMDD.gpkg<br><b>amenities/</b> amenities_YYYYMMDD.csv<br><b>access_points/</b> access_points_YYYYMMDD.gpkg<br><b>service_areas/</b> service_areas_YYYYMMDD.gpkg<br><br><i>Each script reads the latest version as input<br>and writes a new dated version</i>")]
+M[("<b style='font-size:15px'>Versioned SFA Master Datasets</b><br><b>boundaries/</b> boundaries_YYYYMMDD.gpkg<br><b>amenities/</b> amenities_YYYYMMDD.csv<br><b>access_points/</b> access_points_YYYYMMDD.gpkg<br><b>service_areas/</b> service_areas_YYYYMMDD.gpkg<br><i>Scripts read the latest version<br>and write a new dated version</i>")]
 
 B1 ==> B2
 B2 ==> B3
