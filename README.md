@@ -30,71 +30,36 @@ flowchart TB
 
 subgraph BOUNDARY["1. Park Boundary"]
     direction LR
-    B1["Sources
-External park boundary datasets
-Local, regional, state, federal"]
-    B2["Compare with master
-Append new parks
-Manual GIS review
-01_update_boundaries.R"]
-    B4[("Master Park Boundary
-Primary key: park_id")]
+    B1["<b>Sources</b><br>External park boundary datasets<br>Local, regional, state, federal"]
+    B2["<b>Update master boundaries</b><br>Compare with master<br>Append new parks<br>Manual GIS review<br><font color='#1A73E8'>01_update_boundaries.R</font>"]
+    B4[("<b>Master Park Boundary</b><br>Primary key: park_id")]
     B1 ==> B2 ==> B4
 end
 
 subgraph AMENITY["2. Park Amenity"]
     direction LR
-    A1["Sources
-External amenity datasets
-Polygon, point, survey based"]
-    A2["Map fields, match to parks
-Apply source update rules
-02a_update_amenities_polygon.R
-02b_update_amenities_point.R
-02c_update_amenities_survey123.R"]
-    A4[("Master Park Amenity
-Primary key: park_id")]
+    A1["<b>Sources</b><br>External amenity datasets<br>Polygon, point, survey based"]
+    A2["<b>Update amenities</b><br>Map fields, match to parks<br>Apply source update rules<br><font color='#1A73E8'>02a_update_amenities_polygon.R</font><br><font color='#1A73E8'>02b_update_amenities_point.R</font><br><font color='#1A73E8'>02c_update_amenities_survey123.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
+    A4[("<b>Master Park Amenity</b><br>Primary key: park_id")]
     A1 ==> A2 ==> A4
 end
 
 subgraph ACCESS["3. Park Access Point"]
     direction LR
-    P1["Sources
-Reported park addresses
-Statewide OSM roads, parking
-03c_build_road_network.R"]
-    P2["Geocode, validate addresses
-Estimate points for
-uncovered parks
-03b_geocode_survey123
-_access_points.R
-03d_estimate_missing
-_access_points.R"]
-    P5[("Master Park Access Point
-Primary key: access_point_id
-Foreign key: park_id")]
+    P1["<b>Sources</b><br>Reported park addresses<br>Statewide OSM roads, parking<br><font color='#1A73E8'>03c_build_road_network.R</font>"]
+    P2["<b>Build access points</b><br>Geocode, validate addresses<br>Estimate points for uncovered parks<br><font color='#1A73E8'>03b_geocode_survey123_access_points.R</font><br><font color='#1A73E8'>03d_estimate_missing_access_points.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
+    P5[("<b>Master Park Access Point</b><br>Primary key: access_point_id<br>Foreign key: park_id")]
     P1 ==> P2 ==> P5
 end
 
 subgraph SERVICE["4. Drive Time Service Area"]
     direction LR
-    T1["10 min driving isochrone
-per access point
-Local ORS, same OSM snapshot
-04a_generate_isochrones.R"]
-    T3[("Master Service Area
-Primary key: service_area_id
-Foreign keys:
-access_point_id, park_id")]
+    T1["<b>Generate service areas</b><br>10 min driving isochrone per point<br>Local ORS, same OSM snapshot<br><font color='#1A73E8'>04a_generate_isochrones.R</font>"]
+    T3[("<b>Master Service Area</b><br>Primary key: service_area_id<br>Foreign keys: access_point_id, park_id")]
     T1 ==> T3
 end
 
-M[("Versioned SFA Master Datasets
-boundaries_YYYYMMDD.gpkg
-amenities_YYYYMMDD.xlsx
-access_points_YYYYMMDD.gpkg
-isochrones_10min
-_YYYYMMDD.gpkg")]
+M[("<b>Versioned SFA Master Datasets</b><br>boundaries_YYYYMMDD.gpkg<br>amenities_YYYYMMDD.xlsx<br>access_points_YYYYMMDD.gpkg<br>isochrones_10min_YYYYMMDD.gpkg")]
 
 B4 -- park_id --> A2
 B4 -- park_id --> P2
