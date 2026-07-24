@@ -1,15 +1,13 @@
 # SFA Master Dataset Workflow
-
-This repository contains the R scripts used to build and maintain the versioned master datasets for the Strive for Access project.
-
-The workflow includes four linked datasets:
-
+ 
+This repository contains the R scripts used to build and maintain the versioned master datasets for the Strive for Access project. The workflow produces four linked datasets:
+ 
 1. Park boundary dataset
 2. Park amenity dataset
 3. Park access point dataset
 4. Drive time service area dataset
 
-Each processing script reads the latest available master dataset and writes a new dated version. Stable identifiers are preserved across versions so that records can be linked between datasets.
+Input and output paths are set in the CONFIG section of each script and updated per run. Every run writes a new dated version, and repeated runs on the same day are suffixed `_1`, `_2` to avoid overwriting. Stable identifiers are preserved across versions so that records can be linked between datasets.
 
 ## Data Processing Workflow
 
@@ -24,62 +22,83 @@ config:
   flowchart:
     htmlLabels: true
     curve: basis
-    nodeSpacing: 16
-    rankSpacing: 28
+    nodeSpacing: 20
+    rankSpacing: 36
   layout: dagre
 ---
 flowchart TB
 
-subgraph BOUNDARY["1. Park Boundary Dataset"]
+subgraph BOUNDARY["1. Park Boundary"]
     direction LR
-    B1["<b>Data sources</b><br>External boundary datasets<br>Survey123 geometry correction requests"]
-    B2["<b>Update master boundaries</b><br>Standardize fields and geometry<br>Compare with master and append new parks<br>Preserve park_id UUIDs<br>Assign IDs to new parks only<br><font color='#1A73E8'>01_update_boundaries.R</font>"]
-    B3["<b>Manual review in GIS</b><br>Resolve overlaps and duplicates<br>Apply Survey123 geometry corrections"]
-    B4[("<b>Master Park Boundary Dataset</b><br>Validated park polygons<br>Primary key: park_id")]
+    B1["Sources
+External park boundary datasets
+Local, regional, state, federal"]
+    B2["Compare with master
+Append new parks
+Manual GIS review
+01_update_boundaries.R"]
+    B4[("Master Park Boundary
+Primary key: park_id")]
+    B1 ==> B2 ==> B4
 end
 
-subgraph AMENITY["2. Park Amenity Dataset"]
+subgraph AMENITY["2. Park Amenity"]
     direction LR
-    A1["<b>Data sources</b><br>External polygon datasets<br>External point datasets<br>Survey123 amenity responses"]
-    A2["<b>Update from external datasets</b><br>Standardize amenity fields<br>Spatially match records to parks<br>Update confirmed values<br><font color='#1A73E8'>02a_update_amenities_polygon.R</font><br><font color='#1A73E8'>02b_update_amenities_point.R</font>"]
-    A3["<b>Update from Survey123</b><br>Match responses to parks<br>Summarize responses by park<br>Update reviewed values<br><font color='#1A73E8'>02c_update_amenities_survey123.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
-    A4[("<b>Master Park Amenity Dataset</b><br>One record per park<br>Primary key: park_id")]
+    A1["Sources
+External amenity datasets
+Polygon, point, survey based"]
+    A2["Map fields, match to parks
+Apply source update rules
+02a_update_amenities_polygon.R
+02b_update_amenities_point.R
+02c_update_amenities_survey123.R"]
+    A4[("Master Park Amenity
+Primary key: park_id")]
+    A1 ==> A2 ==> A4
 end
 
-subgraph ACCESS["3. Park Access Point Dataset"]
+subgraph ACCESS["3. Park Access Point"]
     direction LR
-    P1["<b>Data sources</b><br>External access point datasets<br>Survey123 park addresses<br>OSM parking and road data"]
-    P2["<b>Update external and Survey123 points</b><br>Standardize external points<br>Geocode and validate addresses<br>Deduplicate and append new points<br>Assign access_point_id UUIDs<br><font color='#1A73E8'>03a_update_external_access_points.R</font><br><font color='#1A73E8'>03b_geocode_survey123_access_points.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
-    P3["<b>Complete coverage</b><br>Build ORS filtered road networks<br>Estimate points for uncovered parks<br>OSM parking, road intersections,<br>and nearest road snapping<br><font color='#1A73E8'>03c_build_road_network.R</font><br><font color='#1A73E8'>03d_estimate_missing_access_points.R</font>"]
-    P5[("<b>Master Park Access Point Dataset</b><br>Validated park access points<br>Primary key: access_point_id<br>Foreign key: park_id")]
+    P1["Sources
+Reported park addresses
+Statewide OSM roads, parking
+03c_build_road_network.R"]
+    P2["Geocode, validate addresses
+Estimate points for
+uncovered parks
+03b_geocode_survey123
+_access_points.R
+03d_estimate_missing
+_access_points.R"]
+    P5[("Master Park Access Point
+Primary key: access_point_id
+Foreign key: park_id")]
+    P1 ==> P2 ==> P5
 end
 
-subgraph SERVICE["4. Drive Time Service Area Dataset"]
+subgraph SERVICE["4. Drive Time Service Area"]
     direction LR
-    T1["<b>Generate service areas</b><br>Create one 10 minute isochrone per point<br>Union isochrones by park_id<br>Use checkpoints for incremental updates<br><font color='#1A73E8'>04_generate_service_areas.R</font>"]
-    T3[("<b>Master Drive Time Service Area Dataset</b><br>One service area per park<br>Primary key: park_id")]
+    T1["10 min driving isochrone
+per access point
+Local ORS, same OSM snapshot
+04a_generate_isochrones.R"]
+    T3[("Master Service Area
+Primary key: service_area_id
+Foreign keys:
+access_point_id, park_id")]
+    T1 ==> T3
 end
 
-M[("<b style='font-size:15px'>Versioned SFA Master Datasets</b><br><b>boundaries/</b> boundaries_YYYYMMDD.gpkg<br><b>amenities/</b> amenities_YYYYMMDD.csv<br><b>access_points/</b> access_points_YYYYMMDD.gpkg<br><b>service_areas/</b> service_areas_YYYYMMDD.gpkg<br><i>Scripts read the latest version<br>and write a new dated version</i>")]
+M[("Versioned SFA Master Datasets
+boundaries_YYYYMMDD.gpkg
+amenities_YYYYMMDD.xlsx
+access_points_YYYYMMDD.gpkg
+isochrones_10min
+_YYYYMMDD.gpkg")]
 
-B1 ==> B2
-B2 ==> B3
-B3 ==> B4
-
-A1 ==> A2
-A1 ==> A3
-A2 ==> A4
-A3 ==> A4
-
-P1 ==> P2
-P2 ==> P3
-P3 ==> P5
-
-P5 ==> T1
-T1 ==> T3
-
-B4 -. park geometry and park_id .-> A1
-B4 -. park geometry and park_id .-> P1
+B4 -- park_id --> A2
+B4 -- park_id --> P2
+P5 -- access_point_id --> T1
 
 B4 -.-> M
 A4 -.-> M
@@ -87,79 +106,69 @@ P5 -.-> M
 T3 -.-> M
 
 class B1,A1,P1 standard
-class B2,A2,A3,P2,P3,T1 script
-class B3 manual
+class B2,A2,P2,T1 script
 class B4,A4,P5,T3 output
 class M master
 
 classDef standard fill:#F7F7F7,stroke:#5F6368,stroke-width:1.5px,color:#202124
 classDef script fill:#F7F7F7,stroke:#3C4043,stroke-width:2px,color:#202124
-classDef manual fill:#FFFFFF,stroke:#5F6368,stroke-width:1.5px,stroke-dasharray:5 3,color:#202124
-classDef output fill:#F7F7F7,stroke:#5F6368,stroke-width:2px,color:#202124
+classDef output fill:#F7F7F7,stroke:#5F6368,stroke-width:2.5px,color:#202124
 classDef master fill:#F7F7F7,stroke:#3C4043,stroke-width:2.5px,color:#202124
 ```
 
 ## Dataset Relationships
+ 
+All identifiers share one format: a 12 character hexadecimal string generated with `ids::random_id(bytes = 6)`.
+ 
+The park boundary dataset provides the authoritative park geometry and `park_id`. Existing ids are never regenerated; new parks receive new ids when appended.
+ 
+The amenity dataset contains one record per park and uses `park_id` as its primary key. Its rows are kept aligned with the boundary dataset: parks appended to the boundaries receive empty amenity rows on the next amenity update.
+ 
+The access point dataset may contain multiple access points per park. Each record has a unique `access_point_id` and links to its park through `park_id`. The `GIS_SRC` field records how each point was obtained (Survey123 geocoding or one of the estimation methods).
+ 
+The service area dataset contains one 10 minute driving isochrone per access point. Each record has a unique `service_area_id` and links back through `access_point_id` and `park_id`.
 
-The park boundary dataset provides the authoritative park geometry and `park_id`.
-
-The amenity dataset contains one amenity record for each park and uses `park_id` as its primary key.
-
-The access point dataset may contain multiple access points for each park. Each record has a unique `access_point_id` and is linked to the corresponding park through `park_id`.
-
-The service area dataset contains one combined 10 minute drive time service area for each park and uses `park_id` as its primary key.
 
 ## Versioned Outputs
-
+ 
 ```text
-data/
+Data/
   master/
     boundaries/
       boundaries_YYYYMMDD.gpkg
-
     amenities/
-      amenities_YYYYMMDD.csv
-
+      amenities_YYYYMMDD.xlsx
     access_points/
       access_points_YYYYMMDD.gpkg
-
     service_areas/
-      service_areas_YYYYMMDD.gpkg
+      isochrones_10min_YYYYMMDD.gpkg
+  roads/
+    nc_roads_ors.gpkg        # statewide ORS filtered road network (03c)
+    nc_parking.gpkg          # statewide OSM parking points (03c)
+    osm_cache/               # Geofabrik NC extract shared by 03c, 03d, 04a
 ```
 
 ## Processing Scripts
-
+ 
 ```text
-R/
-  01_update_boundaries.R
-
-  02a_update_amenities_polygon.R
-  02b_update_amenities_point.R
-  02c_update_amenities_survey123.R
-
-  03a_update_external_access_points.R
-  03b_geocode_survey123_access_points.R
-  03c_build_road_network.R
-  03d_estimate_missing_access_points.R
-
-  04_generate_service_areas.R
-
-  functions/
-    match_survey_to_master.R
+Scripts/
+  01_update_boundaries.R                  # append new parks from an external boundary source
+  02a_update_amenities_polygon.R          # amenity update from a polygon source (area overlap match)
+  02b_update_amenities_point.R            # amenity update from a point source (point in polygon match)
+  02c_update_amenities_survey123.R        # amenity update from the 7 regional Survey123 servers
+  03b_geocode_survey123_access_points.R   # geocode Survey123 addresses into access points
+  03c_build_road_network.R                # build statewide roads and parking from the Geofabrik extract
+  03d_estimate_missing_access_points.R    # estimate access points for uncovered parks, 100 county loop
+  04a_generate_isochrones.R               # 10 minute driving isochrones via a local ORS instance
+  match_survey_to_master.R                # shared point to park matching, used by 02c and 03b
 ```
 
-## Identifier Structure
-
-| Dataset                  | Primary key       | Foreign key |
-| :----------------------- | :---------------- | :---------- |
-| Park boundaries          | `park_id`         |             |
-| Park amenities           | `park_id`         |             |
-| Park access points       | `access_point_id` | `park_id`   |
-| Drive time service areas | `park_id`         |             |
-
-Existing identifiers are preserved during updates. New identifiers are assigned only when a new park or access point is appended to a master dataset.
-
-
+## Notes
+ 
+- Roads, parking, access point estimation, and isochrones are all derived from a single Geofabrik OSM snapshot, so the layers stay mutually consistent. Rebuilding from a newer snapshot means rerunning 03c, then 03d, then 04a.
+- Survey123 responses left at a region's default map location are excluded throughout, since an unmoved pin carries no location information.
+- 04a requires a local openrouteservice Docker container built from the same extract; see the script header for the run command.
+- Update sources and record counts are tracked per batch in the master update tracking sheet.
 
 
 
