@@ -1,101 +1,65 @@
-# SFA Master Dataset Workflow
- 
-This repository contains the R scripts used to build and maintain the versioned master datasets for the Strive for Access project. The workflow produces four linked datasets:
- 
-1. Park boundary dataset
-2. Park amenity dataset
-3. Park access point dataset
-4. Drive time service area dataset
+# SFA Master Dataset Maintenance
 
-Input and output paths are set in the CONFIG section of each script and updated per run. Every run writes a new dated version, and repeated runs on the same day are suffixed `_1`, `_2` to avoid overwriting. Stable identifiers are preserved across versions so that records can be linked between datasets.
+This repository contains the R scripts and procedures used to maintain the versioned master datasets for the **Strive for Access (SFA)** project.
 
-## Data Processing Workflow
+The repository is intended primarily for ongoing dataset maintenance. Use the **Conditional Maintenance Workflow** below to determine which datasets and scripts should be used when new information is received or an existing record changes.
 
-```mermaid
----
-config:
-  theme: base
-  themeVariables:
-    fontFamily: ''
-    fontSize: 12px
-    lineColor: '#5F6368'
-  flowchart:
-    htmlLabels: true
-    curve: basis
-    nodeSpacing: 20
-    rankSpacing: 36
-  layout: dagre
----
-flowchart TB
+## Master Datasets
 
-subgraph BOUNDARY["1. Park Boundary"]
-    direction LR
-    B1["<b>Sources</b><br>External park boundary datasets<br>Local, regional, state, federal"]
-    B2["<b>Update master boundaries</b><br>Compare with master<br>Append new parks<br>Manual GIS review<br><font color='#1A73E8'>01_update_boundaries.R</font>"]
-    B4[("<b>Master Park Boundary</b><br>Primary key: park_id")]
-    B1 ==> B2 ==> B4
-end
+The workflow maintains four linked master datasets.
 
-subgraph AMENITY["2. Park Amenity"]
-    direction LR
-    A1["<b>Sources</b><br>External amenity datasets<br>Polygon, point, survey based"]
-    A2["<b>Update amenities</b><br>Map fields, match to parks<br>Apply source update rules<br><font color='#1A73E8'>02a_update_amenities_polygon.R</font><br><font color='#1A73E8'>02b_update_amenities_point.R</font><br><font color='#1A73E8'>02c_update_amenities_survey123.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
-    A4[("<b>Master Park Amenity</b><br>Primary key: park_id")]
-    A1 ==> A2 ==> A4
-end
+| Dataset                      | Key                                             | Description                                           |
+| ---------------------------- | ----------------------------------------------- | ----------------------------------------------------- |
+| **Park Boundaries**          | `park_id`                                       | Authoritative park polygons and core park information |
+| **Park Amenities**           | `park_id`                                       | One amenity record per park                           |
+| **Park Access Points**       | `access_point_id`, `park_id`                    | One or more vehicle access points per park            |
+| **Drive Time Service Areas** | `service_area_id`, `access_point_id`, `park_id` | Ten minute driving service area for each access point |
 
-subgraph ACCESS["3. Park Access Point"]
-    direction LR
-    P1["<b>Sources</b><br>Reported park addresses<br>Statewide OSM roads, parking<br><font color='#1A73E8'>03c_build_road_network.R</font>"]
-    P2["<b>Build access points</b><br>Geocode, validate addresses<br>Estimate points for uncovered parks<br><font color='#1A73E8'>03b_geocode_survey123_access_points.R</font><br><font color='#1A73E8'>03d_estimate_missing_access_points.R</font><br><i>uses <font color='#1A73E8'>match_survey_to_master.R</font></i>"]
-    P5[("<b>Master Park Access Point</b><br>Primary key: access_point_id<br>Foreign key: park_id")]
-    P1 ==> P2 ==> P5
-end
+Existing identifiers should be preserved across versions. New identifiers should be assigned only to genuinely new records.
 
-subgraph SERVICE["4. Drive Time Service Area"]
-    direction LR
-    T1["<b>Generate service areas</b><br>10 min driving isochrone per point<br>Local ORS, same OSM snapshot<br><font color='#1A73E8'>04a_generate_isochrones.R</font>"]
-    T3[("<b>Master Service Area</b><br>Primary key: service_area_id<br>Foreign keys: access_point_id, park_id")]
-    T1 ==> T3
-end
+## Conditional Maintenance Workflow
 
-M[("<b>Versioned SFA Master Datasets</b><br>boundaries_YYYYMMDD.gpkg<br>amenities_YYYYMMDD.xlsx<br>access_points_YYYYMMDD.gpkg<br>isochrones_10min_YYYYMMDD.gpkg")]
+Use the table below to determine the appropriate maintenance procedure when new information is received or an existing record needs to be changed.
 
-B4 -- park_id --> A2
-B4 -- park_id --> P2
-P5 -- access_point_id --> T1
+Not every maintenance condition affects all four master datasets. For example, an amenity correction may require only an amenity update and downstream application refresh, while the addition of a new park may require changes to all four master datasets.
 
-B4 -.-> M
-A4 -.-> M
-P5 -.-> M
-T3 -.-> M
+| Scenario                                  | Input or condition                                                                              | Processing sequence                                                                                                                                                                                                                                         | Affected datasets                                   | Processing method                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A. Park Inventory Change**              | New park polygon from an external source                                                        | `01_update_boundaries.R` → prepare amenity record → `03d_estimate_missing_access_points.R` → `04_generate_isochrones.R` → `05_create_exb_data.R`                                                                                                            | Boundaries, Amenities, Access Points, Service Areas | **Script + manual review.** Use `01_update_boundaries.R` to compare the incoming polygon source with the existing boundary master and append genuinely new parks. Review new polygons before accepting the output. Amenity records may be prepared manually or through the appropriate amenity workflow.                                    |
+| **A. Park Inventory Change**              | Park identified through Survey123 but absent from the boundary master                           | Identify or obtain the correct polygon → review or create polygon in ArcGIS Pro or ArcGIS Online → add to boundary master → assign new `park_id` → rerun relevant amenity and access point procedures → `04_generate_isochrones.R` → `05_create_exb_data.R` | Potentially all four master datasets                | **Manual + Script.** Polygon identification and creation require case specific GIS review. Once the park is added to the boundary master, existing Survey123 records can be reconsidered against the updated master.                                                                                                                        |
+| **A. Park Inventory Change**              | Existing park changes, including boundary, name, ownership, closure status, merger, or division | Edit the approved boundary master → determine whether amenity or access point records are affected → update affected records → regenerate affected service areas if necessary → `05_create_exb_data.R`                                                      | Depends on the type of change                       | **Manual + Script.** These changes generally require case specific review and are best handled in ArcGIS Pro or ArcGIS Online before running the relevant downstream scripts. Preserve existing `park_id` values whenever the park remains the same project entity.                                                                         |
+| **B. Amenity Information Change**         | Polygon based external amenity source                                                           | Review source configuration and field mapping → `02a_update_amenities_polygon.R` → review changes → `05_create_exb_data.R`                                                                                                                                  | Amenities                                           | **Automated + review.** Source specific field mappings and spatial matching settings should be checked before each run.                                                                                                                                                                                                                     |
+| **B. Amenity Information Change**         | Point based external amenity source                                                             | Review source configuration and field mapping → `02b_update_amenities_point.R` → review matches and changes → `05_create_exb_data.R`                                                                                                                        | Amenities                                           | **Automated + review.** Incoming amenity points are spatially linked to master parks. Review unmatched or ambiguous records before accepting the updated master.                                                                                                                                                                            |
+| **B. Amenity Information Change**         | New or updated Survey123 amenity responses                                                      | `02c_update_amenities_survey123.R` → review unmatched and multiple match records → `05_create_exb_data.R`                                                                                                                                                   | Amenities                                           | **Automated + review.** Survey123 responses that match exactly one master park can be incorporated automatically. Records without a unique park match require manual review.                                                                                                                                                                |
+| **B. Amenity Information Change**         | Manual correction to an existing amenity record                                                 | Confirm `park_id` → edit the amenity master → QA/QC → `05_create_exb_data.R`                                                                                                                                                                                | Amenities                                           | **Manual + Script.** Small corrections can be made directly in the master amenity table after verifying the correct park and value.                                                                                                                                                                                                         |
+| **C. Access Point Change**                | New external entrance, parking, or access point source                                          | Review source configuration → `03a_update_external_access_points.R` → review matched and duplicate points → `04_generate_isochrones.R` → `05_create_exb_data.R`                                                                                             | Access Points, Service Areas                        | **Automated + review.** Incoming access points are linked to parks and checked against existing access points before new records are appended.                                                                                                                                                                                              |
+| **C. Access Point Change**                | Park has no verified access point                                                               | `03d_estimate_missing_access_points.R` → review estimated points → `04_generate_isochrones.R` → `05_create_exb_data.R`                                                                                                                                      | Access Points, Service Areas                        | **Automated estimation + QA/QC.** Access points are estimated using OSM parking locations, park boundary and road intersections, and road snapping in hierarchical order. Estimated points should be reviewed before final acceptance.                                                                                                      |
+| **C. Access Point Change**                | Survey123 provides a usable park address or access location                                     | Confirm the Survey123 park match → geocode and validate the reported location → append approved access point to the master → `04_generate_isochrones.R` → `05_create_exb_data.R`                                                                            | Access Points, Service Areas                        | **Manual + existing geocoding logic.** `03b_geocode_survey123_access_points.R` contains the geocoding and validation logic originally used to construct access points from Survey123 addresses. For routine maintenance, reviewed records can be incorporated into the existing access point master rather than rebuilding it from scratch. |
+| **C. Access Point Change**                | Existing access point is corrected or removed                                                   | Confirm affected `access_point_id` and `park_id` → edit the access point master in ArcGIS Pro or ArcGIS Online → remove or replace the corresponding service area → regenerate affected isochrone if required → `05_create_exb_data.R`                      | Access Points, Service Areas                        | **Manual + Script.** Access point corrections and removals should be reviewed carefully because corresponding service areas must remain synchronized with the access point master.                                                                                                                                                          |
+| **D. Downstream Refresh and Publication** | Amenity information changed but access points did not                                           | `05_create_exb_data.R`                                                                                                                                                                                                                                      | Downstream application data                         | **Automated downstream refresh.** Service areas do not need to be regenerated when access point locations have not changed.                                                                                                                                                                                                                 |
+| **D. Downstream Refresh and Publication** | Access points were added or changed                                                             | Confirm approved access point master → `04_generate_isochrones.R` → review service areas → `05_create_exb_data.R`                                                                                                                                           | Service Areas, downstream application data          | **Automated + review.** New or changed access points require corresponding service area generation before application data are rebuilt.                                                                                                                                                                                                     |
+| **D. Downstream Refresh and Publication** | Updated master datasets are approved for publication                                            | `05_create_exb_data.R` → update hosted feature layers → verify web maps → verify application                                                                                                                                                                | Hosted layers, web maps, application                | **Script + manual publication verification.** After rebuilding application data, update the appropriate ArcGIS Online content and confirm that web maps and the final application reflect the approved master datasets.                                                                                                                     |
 
-class B1,A1,P1 standard
-class B2,A2,P2,T1 script
-class B4,A4,P5,T3 output
-class M master
+## Processing Scripts
 
-classDef standard fill:#F7F7F7,stroke:#5F6368,stroke-width:1.5px,color:#202124
-classDef script fill:#F7F7F7,stroke:#3C4043,stroke-width:2px,color:#202124
-classDef output fill:#F7F7F7,stroke:#5F6368,stroke-width:2.5px,color:#202124
-classDef master fill:#F7F7F7,stroke:#3C4043,stroke-width:2.5px,color:#202124
-```
+| Script                                  | Purpose                                                                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `01_update_boundaries.R`                | Add new park polygons while preserving existing `park_id` values                                    |
+| `02a_update_amenities_polygon.R`        | Update amenities from polygon based sources                                                         |
+| `02b_update_amenities_point.R`          | Update amenities from point based sources                                                           |
+| `02c_update_amenities_survey123.R`      | Update amenities from regional Survey123 responses                                                  |
+| `03a_update_external_access_points.R`   | Add access points from external entrance or parking datasets                                        |
+| `03b_geocode_survey123_access_points.R` | Geocode and validate Survey123 park addresses; primarily used for initial access point construction |
+| `03c_build_road_network.R`              | Build or refresh statewide OSM roads and parking used for access point estimation                   |
+| `03d_estimate_missing_access_points.R`  | Estimate access points for parks without verified access points                                     |
+| `04_generate_isochrones.R`              | Generate ten minute driving service areas from access points                                        |
+| `05_create_exb_data.R`                  | Rebuild downstream data used by the Experience Builder application                                  |
+| `match_survey_to_master.R`              | Shared function for matching Survey123 points to master park polygons                               |
 
-## Dataset Relationships
- 
-All identifiers share one format: a 12 character hexadecimal string generated with `ids::random_id(bytes = 6)`.
- 
-The park boundary dataset provides the authoritative park geometry and `park_id`. Existing ids are never regenerated; new parks receive new ids when appended.
- 
-The amenity dataset contains one record per park and uses `park_id` as its primary key. Its rows are kept aligned with the boundary dataset: parks appended to the boundaries receive empty amenity rows on the next amenity update.
- 
-The access point dataset may contain multiple access points per park. Each record has a unique `access_point_id` and links to its park through `park_id`. The `GIS_SRC` field records how each point was obtained (Survey123 geocoding or one of the estimation methods).
- 
-The service area dataset contains one 10 minute driving isochrone per access point. Each record has a unique `service_area_id` and links back through `access_point_id` and `park_id`.
+Input paths, output paths, source settings, and other run specific options are defined in the `CONFIG` section of each script.
 
+## Data Locations and Versioning
 
-## Versioned Outputs
- 
 ```text
 Data/
   master/
@@ -108,47 +72,25 @@ Data/
     service_areas/
       isochrones_10min_YYYYMMDD.gpkg
   roads/
-    nc_roads_ors.gpkg        # statewide ORS filtered road network (03c)
-    nc_parking.gpkg          # statewide OSM parking points (03c)
-    osm_cache/               # Geofabrik NC extract shared by 03c, 03d, 04a
+    nc_roads_ors.gpkg
+    nc_parking.gpkg
+    osm_cache/
 ```
 
-## Processing Scripts
- 
-```text
-Scripts/
-  01_update_boundaries.R                  # append new parks from an external boundary source
-  02a_update_amenities_polygon.R          # amenity update from a polygon source (area overlap match)
-  02b_update_amenities_point.R            # amenity update from a point source (point in polygon match)
-  02c_update_amenities_survey123.R        # amenity update from the 7 regional Survey123 servers
-  03b_geocode_survey123_access_points.R   # geocode Survey123 addresses into access points
-  03c_build_road_network.R                # build statewide roads and parking from the Geofabrik extract
-  03d_estimate_missing_access_points.R    # estimate access points for uncovered parks, 100 county loop
-  04a_generate_isochrones.R               # 10 minute driving isochrones via a local ORS instance
-  match_survey_to_master.R                # shared point to park matching, used by 02c and 03b
-```
+Each maintenance run should create a new dated version rather than overwrite the previous approved master. If multiple versions are created on the same day, use suffixes such as `_1` and `_2`.
 
-## Notes
- 
-- Roads, parking, access point estimation, and isochrones are all derived from a single Geofabrik OSM snapshot, so the layers stay mutually consistent. Rebuilding from a newer snapshot means rerunning 03c, then 03d, then 04a.
-- Survey123 responses left at a region's default map location are excluded throughout, since an unmoved pin carries no location information.
-- 04a requires a local openrouteservice Docker container built from the same extract; see the script header for the run command.
-- Update sources and record counts are tracked per batch in the master update tracking sheet.
+Before running a downstream script, confirm that its inputs point to the latest **approved** master datasets.
 
-| Scenario | Input or condition | Processing sequence | Affected datasets | Processing method |
-|---|---|---|---|---|
-| **A. Park Inventory Change** | New park polygon from an external source | `01_update_boundaries.R` → prepare amenity record → `03d_estimate_missing_access_points.R` → `04_generate_isochrones.R` → `05_create_exb_data.R` | Boundaries, Amenities, Access Points, Service Areas | **Script + manual review.** `01_update_boundaries.R` can ingest new polygon sources. Amenity records may be prepared manually or through the appropriate amenity workflow depending on the source. |
-| **A. Park Inventory Change** | Park identified through Survey123 but absent from the boundary master | Identify or obtain the correct polygon → add polygon to boundary master → assign new `park_id` → rerun relevant amenity and access point procedures → `04_generate_isochrones.R` → `05_create_exb_data.R` | Potentially all four master datasets | **Manual + Script.** Polygon identification, creation, and review are handled in ArcGIS Pro or ArcGIS Online. Existing scripts are then used for downstream processing. |
-| **A. Park Inventory Change** | Existing park changes, including boundary, name, ownership, closure, merger, or division | Edit approved boundary master → determine whether amenities or access points are affected → regenerate affected downstream data → `05_create_exb_data.R` | Depends on the type of change | **Manual + Script.** These changes generally require case specific review and are best handled through ArcGIS Pro or ArcGIS Online, followed by the relevant downstream scripts. |
-| **B. Amenity Information Change** | Polygon based external amenity source | `02a_update_amenities_polygon.R` → `05_create_exb_data.R` | Amenities | **Automated + review.** Source specific field mappings and configuration should be checked before running the script. |
-| **B. Amenity Information Change** | Point based external amenity source | `02b_update_amenities_point.R` → `05_create_exb_data.R` | Amenities | **Automated + review.** Amenity field mappings and spatial matching settings should be checked for the incoming source. |
-| **B. Amenity Information Change** | New or updated Survey123 amenity responses | `02c_update_amenities_survey123.R` → `05_create_exb_data.R` | Amenities | **Automated + review.** Responses matched to exactly one park are processed automatically. Unmatched and multiple match records require manual review. |
-| **B. Amenity Information Change** | Manual correction to an existing amenity record | Edit amenity master → QA/QC → `05_create_exb_data.R` | Amenities | **Manual + Script.** Small corrections can be made directly in the master amenity table after confirming the correct `park_id`. |
-| **C. Access Point Change** | New external entrance, parking, or access point source | `03a_update_external_access_points.R` → `04_generate_isochrones.R` → `05_create_exb_data.R` | Access Points, Service Areas | **Automated + review.** The script links incoming points to parks and checks for nearby duplicate access points. |
-| **C. Access Point Change** | Park has no verified access point | `03d_estimate_missing_access_points.R` → `04_generate_isochrones.R` → `05_create_exb_data.R` | Access Points, Service Areas | **Automated estimation + QA/QC.** Access points are estimated using OSM parking, road boundary intersections, and road snapping in hierarchical order. |
-| **C. Access Point Change** | Survey123 provides a usable park address or access location | Geocode and validate location → append approved access point to master → `04_generate_isochrones.R` → `05_create_exb_data.R` | Access Points, Service Areas | **Manual + existing geocoding logic.** `03b_geocode_survey123_access_points.R` contains the relevant geocoding and validation procedures, although the current script was originally designed for initial master construction. |
-| **C. Access Point Change** | Existing access point is corrected or removed | Edit access point master → remove or replace affected service area → regenerate affected isochrone as needed → `05_create_exb_data.R` | Access Points, Service Areas | **Manual + Script.** Point corrections or removals can be handled in ArcGIS Pro or ArcGIS Online. Corresponding service areas should then be synchronized. |
-| **D. Downstream Refresh and Publication** | Amenity information changed but access points did not | `05_create_exb_data.R` | Downstream application data | **Automated downstream refresh.** Service area regeneration is not required. |
-| **D. Downstream Refresh and Publication** | Access points were added or changed | `04_generate_isochrones.R` → `05_create_exb_data.R` | Service Areas, downstream application data | **Automated + review.** Updated access points require corresponding service area generation or replacement before application data are rebuilt. |
-| **D. Downstream Refresh and Publication** | Updated master datasets are approved for publication | `05_create_exb_data.R` → update hosted feature layers → verify web maps → verify application | Hosted layers, web maps, application | **Script + manual publication verification.** Hosted layer updates and final application checks can be completed through ArcGIS Online unless additional automation is later implemented. |
+## Operational Notes
 
+1. **Review before propagation.** Review new polygons, ambiguous Survey123 matches, estimated access points, and other manually resolved records before propagating changes downstream.
+
+2. **Update only affected datasets.** Amenity only changes do not require new service areas. Access point changes do require corresponding service area updates.
+
+3. **Maintain relational consistency.** Amenity and access point records must reference valid `park_id` values. Service areas must reference valid `access_point_id` and `park_id` values.
+
+4. **Survey123 matching.** Records that match exactly one park can be processed automatically. Unmatched or multiple match records require review. Previously unmatched records should be reconsidered after new park polygons are added.
+
+5. **OSM and ORS consistency.** `03c_build_road_network.R`, access point estimation, and service area generation should use consistent North Carolina OSM data whenever practical.
+
+6. **Publication verification.** After an approved update, refresh the required application data, update the relevant ArcGIS Online content, and confirm that the web maps and final application reflect the change.
