@@ -2,7 +2,7 @@
 
 This repository contains the R scripts and procedures used to maintain the versioned master datasets for the **Strive for Access (SFA)** project.
 
-The repository is intended primarily for ongoing dataset maintenance. Use the **Conditional Maintenance Workflow** below to determine which datasets and scripts should be used when new information is received or an existing record changes.
+The repository is intended primarily for ongoing dataset maintenance. Use the **Maintenance Workflow** below to determine which datasets and scripts should be used when new information is received or an existing record changes.
 
 ## Master Datasets
 
@@ -17,7 +17,7 @@ The workflow maintains four linked master datasets.
 
 Existing identifiers should be preserved across versions. New identifiers should be assigned only to genuinely new records.
 
-## Conditional Maintenance Workflow
+## Maintenance Workflow
 
 Use the table below to determine the appropriate maintenance procedure when new information is received or an existing record needs to be changed.
 
