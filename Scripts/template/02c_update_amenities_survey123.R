@@ -58,8 +58,8 @@ root <- "/Users/ywon3/Library/CloudStorage/Dropbox/03_Strive for Access/Data"
 # Input and output files. Update these three lines before each run. Adding a
 # _1, _2 suffix keeps repeated runs on the same day from overwriting.
 boundary_path  <- file.path(root, "master", "boundaries", "boundaries_20260721.gpkg")
-amenities_path <- file.path(root, "master", "amenities", "amenities_20260723_1.xlsx")
-output_path    <- file.path(root, "master", "amenities", "amenities_20260723_2.xlsx")
+amenities_path <- file.path(root, "master", "amenities", "amenities_20260914.xlsx")
+output_path    <- file.path(root, "master", "amenities", "amenities_20260924.xlsx")
 
 page_size           <- 500   # FeatureServer paging size
 default_tolerance_m <- 25    # points within this distance of the region default are dropped
